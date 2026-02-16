@@ -1,34 +1,76 @@
-import {inject, Injectable} from '@angular/core';
-import {HttpClient} from '@angular/common/http';
-import {BehaviorSubject, Observable} from 'rxjs';
-import {API_CONFIG} from '../../../core/config/api-config';
-import {MetadataRefreshRequest} from '../../metadata/model/request/metadata-refresh-request.model';
+import { inject, Injectable } from "@angular/core";
+import { HttpClient } from "@angular/common/http";
+import { BehaviorSubject, Observable } from "rxjs";
+import { API_CONFIG } from "../../../core/config/api-config";
+import { MetadataRefreshRequest } from "../../metadata/model/request/metadata-refresh-request.model";
+import { FileHashVerificationRequest } from "./file-hash-verification-request.model";
 
 export enum TaskType {
-  CLEAR_PDF_CACHE = 'CLEAR_PDF_CACHE',
-  REFRESH_LIBRARY_METADATA = 'REFRESH_LIBRARY_METADATA',
-  UPDATE_BOOK_RECOMMENDATIONS = 'UPDATE_BOOK_RECOMMENDATIONS',
-  CLEANUP_DELETED_BOOKS = 'CLEANUP_DELETED_BOOKS',
-  SYNC_LIBRARY_FILES = 'SYNC_LIBRARY_FILES',
-  BOOKDROP_PERIODIC_SCANNING = 'BOOKDROP_PERIODIC_SCANNING',
-  CLEANUP_TEMP_METADATA = 'CLEANUP_TEMP_METADATA',
-  REFRESH_METADATA_MANUAL = 'REFRESH_METADATA_MANUAL'
+  CLEAR_PDF_CACHE = "CLEAR_PDF_CACHE",
+  REFRESH_LIBRARY_METADATA = "REFRESH_LIBRARY_METADATA",
+  UPDATE_BOOK_RECOMMENDATIONS = "UPDATE_BOOK_RECOMMENDATIONS",
+  CLEANUP_DELETED_BOOKS = "CLEANUP_DELETED_BOOKS",
+  SYNC_LIBRARY_FILES = "SYNC_LIBRARY_FILES",
+  BOOKDROP_PERIODIC_SCANNING = "BOOKDROP_PERIODIC_SCANNING",
+  CLEANUP_TEMP_METADATA = "CLEANUP_TEMP_METADATA",
+  REFRESH_METADATA_MANUAL = "REFRESH_METADATA_MANUAL",
+  VERIFY_FILE_HASHES = "VERIFY_FILE_HASHES",
 }
 
-export const TASK_TYPE_CONFIG: Record<TaskType, { parallel: boolean; async: boolean; displayOrder: number }> = {
-  [TaskType.REFRESH_LIBRARY_METADATA]: {parallel: false, async: true, displayOrder: 1},
-  [TaskType.SYNC_LIBRARY_FILES]: {parallel: false, async: false, displayOrder: 2},
-  [TaskType.BOOKDROP_PERIODIC_SCANNING]: {parallel: false, async: false, displayOrder: 3},
-  [TaskType.UPDATE_BOOK_RECOMMENDATIONS]: {parallel: false, async: true, displayOrder: 4},
-  [TaskType.CLEANUP_DELETED_BOOKS]: {parallel: false, async: false, displayOrder: 5},
-  [TaskType.CLEANUP_TEMP_METADATA]: {parallel: false, async: false, displayOrder: 6},
-  [TaskType.REFRESH_METADATA_MANUAL]: {parallel: false, async: false, displayOrder: 7},
-  [TaskType.CLEAR_PDF_CACHE]: {parallel: false, async: false, displayOrder: 8},
+export const TASK_TYPE_CONFIG: Record<
+  TaskType,
+  { parallel: boolean; async: boolean; displayOrder: number }
+> = {
+  [TaskType.REFRESH_LIBRARY_METADATA]: {
+    parallel: false,
+    async: true,
+    displayOrder: 1,
+  },
+  [TaskType.SYNC_LIBRARY_FILES]: {
+    parallel: false,
+    async: false,
+    displayOrder: 2,
+  },
+  [TaskType.BOOKDROP_PERIODIC_SCANNING]: {
+    parallel: false,
+    async: false,
+    displayOrder: 3,
+  },
+  [TaskType.UPDATE_BOOK_RECOMMENDATIONS]: {
+    parallel: false,
+    async: true,
+    displayOrder: 4,
+  },
+  [TaskType.CLEANUP_DELETED_BOOKS]: {
+    parallel: false,
+    async: false,
+    displayOrder: 5,
+  },
+  [TaskType.CLEANUP_TEMP_METADATA]: {
+    parallel: false,
+    async: false,
+    displayOrder: 6,
+  },
+  [TaskType.VERIFY_FILE_HASHES]: {
+    parallel: false,
+    async: true,
+    displayOrder: 7,
+  },
+  [TaskType.REFRESH_METADATA_MANUAL]: {
+    parallel: false,
+    async: false,
+    displayOrder: 8,
+  },
+  [TaskType.CLEAR_PDF_CACHE]: {
+    parallel: false,
+    async: false,
+    displayOrder: 9,
+  },
 };
 
 export enum MetadataReplaceMode {
-  REPLACE_ALL = 'REPLACE_ALL',
-  REPLACE_MISSING = 'REPLACE_MISSING'
+  REPLACE_ALL = "REPLACE_ALL",
+  REPLACE_MISSING = "REPLACE_MISSING",
 }
 
 export interface LibraryRescanOptions {
@@ -38,7 +80,11 @@ export interface LibraryRescanOptions {
 export interface TaskCreateRequest {
   taskType: TaskType;
   triggeredByCron?: boolean;
-  options?: LibraryRescanOptions | MetadataRefreshRequest | null;
+  options?:
+    | LibraryRescanOptions
+    | MetadataRefreshRequest
+    | FileHashVerificationRequest
+    | null;
 }
 
 export interface TaskCreateResponse {
@@ -54,12 +100,12 @@ export interface TaskStatusResponse {
 }
 
 export enum TaskStatus {
-  ACCEPTED = 'ACCEPTED',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED',
-  FAILED = 'FAILED',
-  CANCELLED = 'CANCELLED',
-  PENDING = 'PENDING'
+  ACCEPTED = "ACCEPTED",
+  IN_PROGRESS = "IN_PROGRESS",
+  COMPLETED = "COMPLETED",
+  FAILED = "FAILED",
+  CANCELLED = "CANCELLED",
+  PENDING = "PENDING",
 }
 
 export interface CronConfig {
@@ -114,13 +160,15 @@ export interface TaskProgressPayload {
 }
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: "root",
 })
 export class TaskService {
   private http = inject(HttpClient);
   private readonly baseUrl = `${API_CONFIG.BASE_URL}/api/v1/tasks`;
 
-  private taskProgressSubject = new BehaviorSubject<TaskProgressPayload | null>(null);
+  private taskProgressSubject = new BehaviorSubject<TaskProgressPayload | null>(
+    null,
+  );
   public taskProgress$ = this.taskProgressSubject.asObservable();
 
   getAvailableTasks(): Observable<TaskInfo[]> {
@@ -136,11 +184,19 @@ export class TaskService {
   }
 
   cancelTask(taskId: string): Observable<TaskCancelResponse> {
-    return this.http.delete<TaskCancelResponse>(`${this.baseUrl}/${taskId}/cancel`);
+    return this.http.delete<TaskCancelResponse>(
+      `${this.baseUrl}/${taskId}/cancel`,
+    );
   }
 
-  updateCronConfig(taskType: string, request: TaskCronConfigRequest): Observable<CronConfig> {
-    return this.http.patch<CronConfig>(`${this.baseUrl}/${taskType}/cron`, request);
+  updateCronConfig(
+    taskType: string,
+    request: TaskCronConfigRequest,
+  ): Observable<CronConfig> {
+    return this.http.patch<CronConfig>(
+      `${this.baseUrl}/${taskType}/cron`,
+      request,
+    );
   }
 
   handleTaskProgress(progress: TaskProgressPayload): void {
