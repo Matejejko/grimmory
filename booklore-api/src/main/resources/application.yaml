@@ -2,13 +2,13 @@ app:
   path-config: '/app/data'
   bookdrop-folder: '/bookdrop'
   version: 'development'
-
   cors:
     # Comma-separated list of allowed CORS origins.
     # Leave empty (default) to allow same-origin requests only.
     # Example: ALLOWED_ORIGINS=https://app.example.com,https://mobile.example.com
     allowed-origins: ${ALLOWED_ORIGINS:*}
-
+  swagger:
+    enabled: ${SWAGGER_ENABLED:false}
   remote-auth:
     enabled: ${REMOTE_AUTH_ENABLED:false}
     create-new-users: ${REMOTE_AUTH_CREATE_NEW_USERS:true}
@@ -32,7 +32,7 @@ server:
     mime-types: text/html,text/css,application/javascript,application/json,image/svg+xml,application/xml,application/atom+xml
     min-response-size: 1024
   tomcat:
-    relaxed-query-chars: '[,],%,{,},|'
+    relaxed-query-chars: "[,],%,{,},|"
 
 spring:
   jackson:
@@ -56,12 +56,12 @@ spring:
     password: ${DATABASE_PASSWORD:${MYSQL_ROOT_PASSWORD}}
     hikari:
       pool-name: BookloreHikariPool
-      max-lifetime: 580000         # 9.6 minutes (avoid DB-side connection cuts)
+      max-lifetime: 580000 # 9.6 minutes (avoid DB-side connection cuts)
       connection-test-query: SELECT 1
-      connection-timeout: 30000    # 30s to acquire a connection before timeout
-      maximum-pool-size: 20        # Higher ceiling for virtual-thread bursts
-      minimum-idle: 5              # Keep warm connections ready
-      idle-timeout: 300000         # 5 minutes before idle connections are closed
+      connection-timeout: 30000 # 30s to acquire a connection before timeout
+      maximum-pool-size: 20 # Higher ceiling for virtual-thread bursts
+      minimum-idle: 5 # Keep warm connections ready
+      idle-timeout: 300000 # 5 minutes before idle connections are closed
   jpa:
     hibernate:
       naming:
@@ -70,7 +70,7 @@ spring:
     properties:
       hibernate:
         query:
-          timeout: 30              # 30s max for any HQL/JPQL query
+          timeout: 30 # 30s max for any HQL/JPQL query
         jdbc:
           time_zone: UTC
           batch_size: 500
