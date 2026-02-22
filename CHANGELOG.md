@@ -1,3 +1,10 @@
+## [1.21.6](https://gitlab.worldteacher.dev/WorldTeacher/wt-booklore/compare/1.21.5...1.21.6) (2026-02-22)
+
+
+### Bug Fixes
+
+* **read state:** set default read state to unread, fix delta error ([384aaa1](https://gitlab.worldteacher.dev/WorldTeacher/wt-booklore/commit/384aaa1172528191139521e11a82331ae9d3df1f))
+
 ## [1.21.5](https://gitlab.worldteacher.dev/WorldTeacher/wt-booklore/compare/1.21.4...1.21.5) (2026-02-21)
 
 
