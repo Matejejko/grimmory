@@ -67,8 +67,7 @@ LABEL org.opencontainers.image.title="WT-BookLore" \
 ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -XX:+UseCompactObjectHeaders -XX:+UseStringDeduplication -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 
 ARG TARGETARCH
-RUN apk update && apk add --no-cache su-exec libstdc++ libgcc && \
-    mkdir -p /bookdrop
+RUN apk update && apk add --no-cache su-exec libstdc++ libgcc mariadb-connector-c mariadb-client
 
 COPY docker/unrar/unrar-${TARGETARCH} /usr/local/bin/unrar
 RUN chmod 755 /usr/local/bin/unrar

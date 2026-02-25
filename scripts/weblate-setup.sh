@@ -141,7 +141,8 @@ pretty_name() {
 
 # ─── Step 1: Create Project ──────────────────────────────────────────────────
 echo "=== Creating project: ${PROJECT_NAME} ==="
-api_post "/projects/" "$(cat <<EOF
+api_post "/projects/" "$(
+  cat <<EOF
 {
   "name": "${PROJECT_NAME}",
   "slug": "${PROJECT_SLUG}",
@@ -177,7 +178,8 @@ for comp in "${COMPONENTS[@]}"; do
   # The first component links to the VCS repo directly.
   # Subsequent components use "repo" linking to share the same repo checkout.
   if $first; then
-    api_post "/projects/${PROJECT_SLUG}/components/" "$(cat <<EOF
+    api_post "/projects/${PROJECT_SLUG}/components/" "$(
+      cat <<EOF
 {
   "name": "${name}",
   "slug": "${comp}",
@@ -197,11 +199,12 @@ for comp in "${COMPONENTS[@]}"; do
   "license": "AGPL-3.0-only"
 }
 EOF
-)"
+    )"
     first=false
   else
     # Link to the first component's repo to save disk space and API calls
-    api_post "/projects/${PROJECT_SLUG}/components/" "$(cat <<EOF
+    api_post "/projects/${PROJECT_SLUG}/components/" "$(
+      cat <<EOF
 {
   "name": "${name}",
   "slug": "${comp}",
@@ -219,7 +222,7 @@ EOF
   "license": "AGPL-3.0-only"
 }
 EOF
-)"
+    )"
   fi
 done
 
