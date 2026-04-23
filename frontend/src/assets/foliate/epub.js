@@ -108,9 +108,31 @@ const resolveURL = (url, relativeTo) => {
 
 const isExternal = uri => /^(?!blob)\w+:/i.test(uri)
 
+const ensureDocumentRoot = doc => {
+    if (doc.documentElement) return doc.documentElement
+
+    const root = doc.createElementNS(NS.XHTML, 'html')
+    while (doc.firstChild) root.append(doc.firstChild)
+    doc.append(root)
+    return root
+}
+
+const ensureHeadElement = doc => {
+    const root = ensureDocumentRoot(doc)
+    let head = Array.from(root.children)
+        .find(el => el.localName?.toLowerCase() === 'head')
+    if (head) return head
+
+    const nsURI = root.namespaceURI
+    head = nsURI ? doc.createElementNS(nsURI, 'head') : doc.createElement('head')
+    const body = Array.from(root.children)
+        .find(el => el.localName?.toLowerCase() === 'body')
+    root.insertBefore(head, body ?? root.firstChild)
+    return head
+}
+
 const prependScriptBlockingMetaCsp = doc => {
-    const head = doc.querySelector('head')
-    if (!head) return
+    const head = ensureHeadElement(doc)
     const nsURI = doc.documentElement?.namespaceURI
     const meta = nsURI ? doc.createElementNS(nsURI, 'meta') : doc.createElement('meta')
     meta.setAttribute('http-equiv', 'Content-Security-Policy')

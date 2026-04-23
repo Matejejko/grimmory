@@ -13,9 +13,30 @@ const MIME = {
     SVG: 'image/svg+xml',
 }
 
+const ensureDocumentRoot = doc => {
+    if (doc.documentElement) return doc.documentElement
+
+    const root = doc.createElement('html')
+    while (doc.firstChild) root.append(doc.firstChild)
+    doc.append(root)
+    return root
+}
+
+const ensureHeadElement = doc => {
+    const root = ensureDocumentRoot(doc)
+    let head = Array.from(root.children)
+        .find(el => el.localName?.toLowerCase() === 'head')
+    if (head) return head
+
+    head = doc.createElement('head')
+    const body = Array.from(root.children)
+        .find(el => el.localName?.toLowerCase() === 'body')
+    root.insertBefore(head, body ?? root.firstChild)
+    return head
+}
+
 const prependScriptBlockingMetaCsp = doc => {
-    const head = doc.querySelector('head')
-    if (!head) return
+    const head = ensureHeadElement(doc)
     const meta = doc.createElement('meta')
     meta.setAttribute('http-equiv', 'Content-Security-Policy')
     meta.setAttribute('content', "script-src 'none'")
