@@ -108,6 +108,17 @@ const resolveURL = (url, relativeTo) => {
 
 const isExternal = uri => /^(?!blob)\w+:/i.test(uri)
 
+const prependScriptBlockingMetaCsp = doc => {
+    const head = doc.querySelector('head')
+    if (!head) return
+    if (head.querySelector('meta[http-equiv="Content-Security-Policy"]')) return
+    const nsURI = doc.documentElement?.namespaceURI
+    const meta = nsURI ? doc.createElementNS(nsURI, 'meta') : doc.createElement('meta')
+    meta.setAttribute('http-equiv', 'Content-Security-Policy')
+    meta.setAttribute('content', "script-src 'none'")
+    head.prepend(meta)
+}
+
 // like `path.relative()` in Node.js
 const pathRelative = (from, to) => {
     if (!from) return to
@@ -923,6 +934,9 @@ class Loader {
             for (const el of doc.querySelectorAll('[style]'))
                 el.setAttribute('style',
                     await this.replaceCSS(el.getAttribute('style'), href, parents))
+            // Keep rendered book documents non-scriptable even when Safari requires
+            // allow-scripts on the iframe for parent-side interaction.
+            prependScriptBlockingMetaCsp(doc)
             // TODO: replace inline scripts? probably not worth the trouble
             const result = new XMLSerializer().serializeToString(doc)
             return this.createURL(href, result, item.mediaType, parent)

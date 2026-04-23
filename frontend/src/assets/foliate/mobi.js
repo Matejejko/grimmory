@@ -13,6 +13,16 @@ const MIME = {
     SVG: 'image/svg+xml',
 }
 
+const prependScriptBlockingMetaCsp = doc => {
+    const head = doc.querySelector('head')
+    if (!head) return
+    if (head.querySelector('meta[http-equiv="Content-Security-Policy"]')) return
+    const meta = doc.createElement('meta')
+    meta.setAttribute('http-equiv', 'Content-Security-Policy')
+    meta.setAttribute('content', "script-src 'none'")
+    head.prepend(meta)
+}
+
 const PDB_HEADER = {
     name: [0, 32, 'string'],
     type: [60, 4, 'string'],
@@ -862,6 +872,9 @@ class MOBI6 {
         }`))
 
         await this.replaceResources(doc)
+        // Keep rendered book documents non-scriptable even when Safari requires
+        // allow-scripts on the iframe for parent-side interaction.
+        prependScriptBlockingMetaCsp(doc)
         const result = this.serializer.serializeToString(doc)
         const url = URL.createObjectURL(new Blob([result], { type: this.#type }))
         this.#cache.set(section, url)
