@@ -1,0 +1,189 @@
+# Goes in: .github/workflows/auto-build-upstream-tags.yml
+#
+# Daily check against upstream (grimmory-tools/grimmory).
+# For every upstream `v*` tag that doesn't already have an image on your GHCR:
+#   1. Push the tag to your fork (source code preserved on your account)
+#   2. Build the Docker image from that tag
+#   3. Push it to ghcr.io/<you>/grimmory:<version>
+#
+# Result: when upstream releases v3.0.3, ~6 minutes later your fork has
+# the source AND a deployable image. If upstream disappears tomorrow,
+# you have both.
+#
+# Trust model: tags are "deliberate releases" — different from random
+# commits. We trust upstream's release process but still gate the
+# k8s deploy step (which is just `kubectl set image`).
+#
+# Manual control: workflow_dispatch lets you trigger it on demand
+# (e.g. to test, or to backfill a specific old version if you change
+# your mind later).
+
+name: Auto-build Upstream Tags
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC daily
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: https://github.com/grimmory-tools/grimmory.git
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/grimmory
+
+jobs:
+  # ============================================================
+  # Job 1: figure out which upstream tags need building
+  # ============================================================
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      tags_to_build: ${{ steps.find.outputs.tags_to_build }}
+      has_work: ${{ steps.find.outputs.has_work }}
+    permissions:
+      contents: write   # needed to push tags to our fork
+      packages: read    # to list existing images
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream and fetch tags
+        run: |
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream --tags --no-recurse-submodules
+
+      - name: Push any new upstream tags to fork
+        run: |
+          # All upstream v* tags
+          UPSTREAM_TAGS=$(git ls-remote --tags upstream 'refs/tags/v*' \
+            | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' | sort -V)
+
+          # All v* tags currently on origin
+          ORIGIN_TAGS=$(git ls-remote --tags origin 'refs/tags/v*' \
+            | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' | sort -V)
+
+          NEW_TAGS=$(comm -23 <(echo "$UPSTREAM_TAGS") <(echo "$ORIGIN_TAGS") || true)
+
+          if [ -z "$NEW_TAGS" ]; then
+            echo "No new tags from upstream."
+          else
+            echo "Pushing new tags to fork:"
+            echo "$NEW_TAGS"
+            while IFS= read -r tag; do
+              [ -z "$tag" ] && continue
+              git push origin "refs/tags/$tag"
+            done <<< "$NEW_TAGS"
+          fi
+
+      - name: Determine which tags need an image build
+        id: find
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # All v* tags on our fork (after the push step above)
+          ALL_TAGS=$(git ls-remote --tags origin 'refs/tags/v*' \
+            | awk '{print $2}' | sed 's|refs/tags/||' | grep -v '\^{}' | sort -V)
+
+          # We only want to (re)build the LATEST tag. Older tags are
+          # historical — building them all would burn CI minutes for no reason.
+          # If you ever want an old tag, trigger workflow_dispatch with a
+          # specific tag (handled below), or relax this filter.
+          LATEST_TAG=$(echo "$ALL_TAGS" | tail -n1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No upstream v* tags exist. Nothing to do."
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+            echo "tags_to_build=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Latest tag: $LATEST_TAG"
+
+          # Check if an image already exists for this tag.
+          # GHCR image tags drop the leading 'v' (per docker/metadata-action).
+          IMAGE_TAG="${LATEST_TAG#v}"
+          PACKAGE_NAME="grimmory"
+          OWNER="${{ github.repository_owner }}"
+
+          # Query GitHub Packages API for existing image tags
+          EXISTING=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions" \
+            --jq ".[].metadata.container.tags[]?" 2>/dev/null \
+            | sort -u || echo "")
+
+          if echo "$EXISTING" | grep -Fxq "$IMAGE_TAG"; then
+            echo "Image :$IMAGE_TAG already exists on GHCR. Nothing to build."
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+            echo "tags_to_build=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "Image :$IMAGE_TAG missing — will build."
+            echo "has_work=true" >> "$GITHUB_OUTPUT"
+            # Output as JSON array for matrix strategy
+            echo "tags_to_build=[\"$LATEST_TAG\"]" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ============================================================
+  # Job 2: build each new tag
+  # ============================================================
+  build:
+    needs: discover
+    if: needs.discover.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJson(needs.discover.outputs.tags_to_build) }}
+
+    steps:
+      - name: Checkout the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.tag }}
+          fetch-depth: 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Force the version tag even though we're not on a tag-push event
+          tags: |
+            type=semver,pattern={{version}},value=${{ matrix.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ matrix.tag }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "Built and pushed:"
+          echo "${{ steps.meta.outputs.tags }}"
