@@ -1,0 +1,109 @@
+# Goes in: .github/workflows/sync-upstream.yml
+#
+# Daily check against grimmory-tools/grimmory:main. If there are new commits
+# upstream, opens a PR into your fork's main with the merge.
+# You review the diff, click merge, and the build.yml workflow takes over from there.
+#
+# Why a PR and not auto-merge:
+#   - You see what changed before it gets built and deployed
+#   - Catches bad-faith commits, breaking changes, or surprise renames
+#   - Costs you ~30 seconds per upstream release to review and click
+
+name: Sync from Upstream
+
+on:
+  schedule:
+    # Daily at 06:00 UTC (08:00 in Bratislava during DST, 07:00 outside DST)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: https://github.com/grimmory-tools/grimmory.git
+  UPSTREAM_BRANCH: main
+  LOCAL_BRANCH: main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream "$UPSTREAM_BRANCH"
+
+      - name: Determine if sync is needed
+        id: check
+        run: |
+          git checkout "$LOCAL_BRANCH"
+          BEHIND=$(git rev-list --count HEAD..upstream/${UPSTREAM_BRANCH})
+          AHEAD=$(git  rev-list --count upstream/${UPSTREAM_BRANCH}..HEAD)
+          echo "Behind upstream by $BEHIND commits, ahead by $AHEAD"
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          if [ "$BEHIND" = "0" ]; then
+            echo "needs_sync=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_sync=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update sync PR
+        if: steps.check.outputs.needs_sync == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="sync/upstream-$(date +%Y%m%d)"
+
+          # If today's branch already exists, reuse it.
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists; updating it."
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+
+          # Try to merge upstream into our branch. If conflict, abort and fail
+          # the workflow so a human handles it.
+          if ! git merge --no-edit upstream/${UPSTREAM_BRANCH}; then
+            echo "::error::Merge conflict with upstream. Resolve locally:"
+            echo "  git fetch upstream && git checkout main"
+            echo "  git merge upstream/${UPSTREAM_BRANCH}"
+            echo "  # resolve conflicts, then push"
+            git merge --abort || true
+            exit 1
+          fi
+
+          git push origin "$BRANCH" --force-with-lease
+
+          # Open PR if one doesn't already exist for this branch
+          if gh pr list --head "$BRANCH" --state open --json number \
+               | grep -q '"number"'; then
+            echo "PR already exists for $BRANCH"
+          else
+            gh pr create \
+              --base "$LOCAL_BRANCH" \
+              --head "$BRANCH" \
+              --title "Sync from upstream ($(date +%Y-%m-%d))" \
+              --body "Automated sync from \`grimmory-tools/grimmory:${UPSTREAM_BRANCH}\`. Behind by ${{ steps.check.outputs.behind }} commits.
+
+          Review the diff before merging:
+          - Anything malicious or suspicious?
+          - Breaking config changes (env vars, schema, ports)?
+          - Anything that affects your k3s deployment?
+
+          On merge, the build workflow will produce a new image automatically."
+          fi
