@@ -57,7 +57,7 @@ jobs:
       - name: Add upstream and fetch tags
         run: |
           git remote add upstream "$UPSTREAM_REPO"
-          git fetch upstream --tags --no-recurse-submodules
+          git fetch upstream --tags --force --no-recurse-submodules
 
       - name: Push any new upstream tags to fork
         run: |
